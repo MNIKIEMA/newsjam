@@ -7,9 +7,11 @@ from tqdm import tqdm
 
 parser = argparse.ArgumentParser(description='Runs newsjam experiments.')
 parser.add_argument('--type', help='The type of experiment (summarization or evaluation). Summarization experiments generate summaries using one of the implemented methods. They are typically very long (hours). Evaluation experiments compute the value of a particular metric on generated summaries. Requires a previous summarization experiment. Those are usually shorter (minutes to an hour).')
-parser.add_argument('--dataset', help='The input dataset for summarization (mlsum, cnn_dailymail, er_actu, guardian)')
+parser.add_argument('--dataset', default='', help='The input dataset (mlsum, cnn_dailymail, er_actu, guardian)')
+parser.add_argument('--metric', default='', help='The evaluation metric for evaluation (rouge_l, bertscore, wmdistance, time)')
 parser.add_argument('--method', help='The summarization method (lsi, flaubert, camembert, roberta)')
 parser.add_argument('--pretrain', default=False, action='store_true', help='Whether to pretrain the input embeddings. Defaults to False if not specified.')
+parser.add_argument('--wmpretrain', default=False, action='store_true', help='Whether to pretrain the embeddings for Word Mover\'s Distance evaluation. Defaults to False if not specified.')
 parser.add_argument('--split', type=int, default=1, help='The index of the dataset split to work on (starts at 1).')
 parser.add_argument('--of', type=int, default=1, help='The number of splits to be considered for the dataset.')
 args = parser.parse_args()
@@ -116,43 +118,54 @@ timing = False
 
 # Input dataset handling
 if exp_type == 'e':
-    print('The following files are available (in the GitHub repository, "gen" folder):')
-    print()
-    in_files = sorted(list(os.listdir('gen')))
-    print('ID  Filename            Dataset   Method                   Pretraining    Keywords')
-    print('----------------------------------------------------------------------------------')
-    for i, in_file in enumerate(in_files):
-        d, m, p, k = [filename_to_params[x] for x in in_file.split('.')[0].split('_')]
-        print('{}'.format(i).ljust(3) + ' {}'.format(in_file).ljust(20) + ' {}'.format(d).ljust(15) + ' {}'.format(m).ljust(25) + ' {}'.format(p).ljust(15) + ' {}'.format(k))
-    print()
-    file_name = ''
-    while file_name not in range(len(in_files)):
-        file_name = input('Filename ID selection? ')
-        try:
-            file_name = int(file_name)
-        except ValueError:
-            pass
-    in_file = in_files[file_name]
-    in_dataset, sum_method, pretraining, keywords = [filename_to_params[x] for x in in_file.split('.')[0].split('_')]
-    print()
-    print('The following evaluation methods are available:')
-    print('0 - ROUGE-L')
-    print('1 - BERTScore')
-    print('2 - Word Mover distance')
-    print('3 - Time measurement')
-    print()
-    metric = ''
-    while metric not in ['0', '1', '2', '3']:
-        metric = input('Chosen metric: ')
+    if not args.dataset or not args.metric:
+        print('The following files are available (in the GitHub repository, "gen" folder):')
+        print()
+        in_files = sorted(list(os.listdir('gen')))
+        print('ID  Filename            Dataset   Method                   Pretraining    Keywords')
+        print('----------------------------------------------------------------------------------')
+        for i, in_file in enumerate(in_files):
+            d, m, p, k = [filename_to_params[x] for x in in_file.split('.')[0].split('_')]
+            print('{}'.format(i).ljust(3) + ' {}'.format(in_file).ljust(20) + ' {}'.format(d).ljust(15) + ' {}'.format(m).ljust(25) + ' {}'.format(p).ljust(15) + ' {}'.format(k))
+        print()
+        file_name = ''
+        while file_name not in range(len(in_files)):
+            file_name = input('Filename ID selection? ')
+            try:
+                file_name = int(file_name)
+            except ValueError:
+                pass
+        in_file = in_files[file_name]
+        in_dataset, sum_method, pretraining, keywords = [filename_to_params[x] for x in in_file.split('.')[0].split('_')]
+        print()
+        print('The following evaluation methods are available:')
+        print('0 - ROUGE-L')
+        print('1 - BERTScore')
+        print('2 - Word Mover distance')
+        print('3 - Time measurement')
+        print()
+        metric = ''
+        while metric not in ['0', '1', '2', '3']:
+            metric = input('Chosen metric: ')
 
-    metric = metrics[int(metric)]
+        metric = metrics[int(metric)]
+        
+        pretraining2 = ''
+        if metric == 'Word Mover distance':
+            while pretraining2 not in ['y', 'n']:
+                pretraining2 = input('Should embeddings be fine-tuned for Word Mover Distance evaluation? [Y/N] ').lower()
+            pretraining2 = pretraining2 == 'y'
+        print()
+    else:
+        metric_dict = {'rouge_l': 0, 'bertscore': 1, 'wmdistance': 2, 'time': 3}
+        dataset_dict = {'mlsum': 0, 'cnn_dailymail': 1, 'er_actu': 2, 'guardian': 3}
 
-    pretraining2 = ''
-    if metric == 'Word Mover distance':
-        while pretraining2 not in ['y', 'n']:
-            pretraining2 = input('Should embeddings be fine-tuned for Word Mover Distance evaluation? [Y/N] ').lower()
-        pretraining2 = pretraining2 == 'y'
-    print()
+        metric = metrics[metric_dict[args.metric]]
+        method = methods[method_dict[args.method]]
+        in_dataset = datasets[dataset_dict[args.dataset]]
+        in_file = '_'.join([params_to_filename[x] for x in [in_dataset, method, "Yes" if args.pretraining else "No"]])
+        in_dataset, sum_method, pretraining, keywords = [filename_to_params[x] for x in in_file.split('.')[0].split('_')]
+        pretraining2 = args.wmpretrain
 
     # Read generated summaries
     with open('gen/' + in_file, encoding='utf-8') as f:
